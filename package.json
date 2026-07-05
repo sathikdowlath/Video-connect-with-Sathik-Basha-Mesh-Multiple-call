@@ -1,7 +1,7 @@
 {
   "name": "video-connect-with-sathik-basha",
   "version": "1.0.0",
-  "description": "WebRTC video conferencing app",
+  "description": "video connect with sathik basha",
   "main": "server.js",
   "scripts": {
     "start": "node server.js"

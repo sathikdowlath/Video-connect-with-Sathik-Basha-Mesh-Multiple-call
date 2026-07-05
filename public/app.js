@@ -59,8 +59,28 @@ function showControlsTemporarily() {
   }, 5000);
 }
 
+function updateGridLayout() {
+  const totalParticipants = 1 + remoteStreams.size;
+  const safeCount = Math.min(Math.max(totalParticipants, 1), 9);
+
+  videosGrid.classList.remove(
+    "layout-1",
+    "layout-2",
+    "layout-3",
+    "layout-4",
+    "layout-5",
+    "layout-6",
+    "layout-7",
+    "layout-8",
+    "layout-9"
+  );
+
+  videosGrid.classList.add(`layout-${safeCount}`);
+}
+
 function updateEmptyState() {
   emptyState.classList.toggle("hidden", remoteStreams.size > 0);
+  updateGridLayout();
 }
 
 async function initLocalMedia(facingMode = currentFacingMode) {
@@ -252,6 +272,7 @@ async function joinRoom() {
 
   await initLocalMedia();
   showConnectedCode(currentRoom);
+  updateGridLayout();
 
   welcomeModal.classList.remove("active");
   roomCodeInput.blur();
@@ -285,6 +306,7 @@ function leaveCall() {
   roomBadge.classList.add("hidden");
   callControls.classList.add("hidden");
   welcomeModal.classList.add("active");
+  updateGridLayout();
   updateEmptyState();
 }
 
@@ -315,23 +337,29 @@ endCallBtn.addEventListener("click", () => {
   leaveCall();
 });
 
-switchCameraBtn.addEventListener("click", async (event) => {
-  event.stopPropagation();
-  try {
-    await switchCamera();
-  } catch (error) {
-    console.error("Camera switch failed:", error);
-  }
-});
+if (switchCameraBtn) {
+  switchCameraBtn.addEventListener("click", async (event) => {
+    event.stopPropagation();
+    try {
+      await switchCamera();
+    } catch (error) {
+      console.error("Camera switch failed:", error);
+    }
+  });
+}
 
-videoStage.addEventListener("click", (event) => {
-  if (
-    event.target.closest(".control-btn") ||
-    event.target.closest(".switch-camera-btn")
-  ) return;
+if (videoStage) {
+  videoStage.addEventListener("click", (event) => {
+    if (
+      event.target.closest(".control-btn") ||
+      event.target.closest(".switch-camera-btn")
+    ) {
+      return;
+    }
 
-  showControlsTemporarily();
-});
+    showControlsTemporarily();
+  });
+}
 
 socket.on("existing-peers", async (peerIds) => {
   for (const peerId of peerIds) {
@@ -379,3 +407,6 @@ socket.on("peer-left", (peerId) => {
   cleanupPeerConnection(peerId);
   removeRemoteVideoElement(peerId);
 });
+
+updateGridLayout();
+updateEmptyState();
