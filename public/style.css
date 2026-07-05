@@ -160,6 +160,10 @@ input {
   padding: 6px 9px;
   border-radius: 999px;
   font-size: 0.78rem;
+  max-width: calc(100% - 20px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .switch-camera-btn {
@@ -192,6 +196,8 @@ input {
   color: var(--muted);
   font-size: 1rem;
   pointer-events: none;
+  text-align: center;
+  padding: 20px;
 }
 
 .call-controls {

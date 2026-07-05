@@ -26,9 +26,21 @@ let controlsTimer = null;
 
 const peerConnections = new Map();
 const remoteStreams = new Map();
+const pendingIceCandidates = new Map();
+const peerStatus = new Map();
 
 const rtcConfig = {
-  iceServers: [{ urls: "stun:stun.l.google.com:19302" }]
+  iceServers: [
+    { urls: "stun:stun.l.google.com:19302" }
+
+    /*
+    ,{
+      urls: "turn:YOUR_TURN_SERVER:3478",
+      username: "YOUR_TURN_USERNAME",
+      credential: "YOUR_TURN_PASSWORD"
+    }
+    */
+  ]
 };
 
 function isMobileDevice() {
@@ -79,8 +91,32 @@ function updateGridLayout() {
 }
 
 function updateEmptyState() {
-  emptyState.classList.toggle("hidden", remoteStreams.size > 0);
+  if (remoteStreams.size > 0) {
+    emptyState.classList.add("hidden");
+    updateGridLayout();
+    return;
+  }
+
+  if (peerConnections.size > 0) {
+    emptyState.textContent = "Connecting to participants...";
+  } else {
+    emptyState.textContent = "Waiting for other participants...";
+  }
+
+  emptyState.classList.remove("hidden");
   updateGridLayout();
+}
+
+function getShortPeerId(peerId) {
+  return String(peerId).slice(0, 5);
+}
+
+function setPeerStatus(peerId, statusText) {
+  peerStatus.set(peerId, statusText);
+  const label = document.querySelector(`#remote-wrap-${peerId} .video-label`);
+  if (label) {
+    label.textContent = `Participant ${getShortPeerId(peerId)} • ${statusText}`;
+  }
 }
 
 async function initLocalMedia(facingMode = currentFacingMode) {
@@ -130,17 +166,22 @@ function createRemoteVideoElement(peerId) {
 
   const label = document.createElement("div");
   label.className = "video-label";
-  label.textContent = `Participant ${peerId.slice(0, 5)}`;
+  label.textContent = `Participant ${getShortPeerId(peerId)} • Connecting`;
 
   card.appendChild(video);
   card.appendChild(label);
   videosGrid.appendChild(card);
+
+  setPeerStatus(peerId, peerStatus.get(peerId) || "Connecting");
 }
 
 function removeRemoteVideoElement(peerId) {
   const card = document.getElementById(`remote-wrap-${peerId}`);
   if (card) card.remove();
+
   remoteStreams.delete(peerId);
+  peerStatus.delete(peerId);
+  pendingIceCandidates.delete(peerId);
   updateEmptyState();
 }
 
@@ -150,8 +191,26 @@ function cleanupPeerConnection(peerId) {
     pc.onicecandidate = null;
     pc.ontrack = null;
     pc.onconnectionstatechange = null;
+    pc.oniceconnectionstatechange = null;
     pc.close();
     peerConnections.delete(peerId);
+  }
+}
+
+async function flushPendingIceCandidates(peerId) {
+  const pc = peerConnections.get(peerId);
+  const queue = pendingIceCandidates.get(peerId);
+
+  if (!pc || !queue || !queue.length) return;
+  if (!pc.remoteDescription) return;
+
+  while (queue.length > 0) {
+    const candidate = queue.shift();
+    try {
+      await pc.addIceCandidate(new RTCIceCandidate(candidate));
+    } catch (error) {
+      console.error(`Failed to add queued ICE candidate for ${peerId}:`, error);
+    }
   }
 }
 
@@ -161,6 +220,9 @@ function createPeerConnection(peerId) {
   }
 
   const pc = new RTCPeerConnection(rtcConfig);
+
+  createRemoteVideoElement(peerId);
+  setPeerStatus(peerId, "Connecting");
 
   if (localStream) {
     localStream.getTracks().forEach(track => {
@@ -180,31 +242,54 @@ function createPeerConnection(peerId) {
 
   pc.ontrack = (event) => {
     createRemoteVideoElement(peerId);
+
     const video = document.getElementById(`remote-video-${peerId}`);
     if (video) {
       video.srcObject = event.streams[0];
       remoteStreams.set(peerId, event.streams[0]);
+      setPeerStatus(peerId, "Connected");
       updateEmptyState();
     }
   };
 
   pc.onconnectionstatechange = () => {
-    if (
-      pc.connectionState === "failed" ||
+    console.log(`connectionState [${peerId}]:`, pc.connectionState);
+
+    if (pc.connectionState === "connected") {
+      setPeerStatus(peerId, "Connected");
+    } else if (
+      pc.connectionState === "connecting" ||
+      pc.connectionState === "new"
+    ) {
+      setPeerStatus(peerId, "Connecting");
+    } else if (pc.connectionState === "failed") {
+      setPeerStatus(peerId, "Connection failed");
+      cleanupPeerConnection(peerId);
+      removeRemoteVideoElement(peerId);
+    } else if (
       pc.connectionState === "disconnected" ||
       pc.connectionState === "closed"
     ) {
+      setPeerStatus(peerId, "Disconnected");
       cleanupPeerConnection(peerId);
       removeRemoteVideoElement(peerId);
     }
+
+    updateEmptyState();
+  };
+
+  pc.oniceconnectionstatechange = () => {
+    console.log(`iceConnectionState [${peerId}]:`, pc.iceConnectionState);
   };
 
   peerConnections.set(peerId, pc);
+  updateEmptyState();
   return pc;
 }
 
 async function createOfferForPeer(peerId) {
   const pc = createPeerConnection(peerId);
+
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 
@@ -270,7 +355,16 @@ async function joinRoom() {
   clearRoomError();
   currentRoom = roomValue;
 
-  await initLocalMedia();
+  try {
+    await initLocalMedia();
+  } catch (error) {
+    console.error("Failed to access camera/microphone:", error);
+    roomError.textContent = "Camera or microphone permission denied";
+    roomCodeInput.classList.add("error");
+    roomError.classList.remove("hidden");
+    return;
+  }
+
   showConnectedCode(currentRoom);
   updateGridLayout();
 
@@ -293,6 +387,11 @@ function leaveCall() {
   for (const peerId of [...remoteStreams.keys()]) {
     removeRemoteVideoElement(peerId);
   }
+
+  peerConnections.clear();
+  remoteStreams.clear();
+  pendingIceCandidates.clear();
+  peerStatus.clear();
 
   stopLocalMedia();
 
@@ -318,7 +417,10 @@ roomCodeInput.addEventListener("keydown", (event) => {
   }
 });
 
-roomCodeInput.addEventListener("input", clearRoomError);
+roomCodeInput.addEventListener("input", () => {
+  roomError.textContent = "Please enter the code number";
+  clearRoomError();
+});
 
 muteBtn.addEventListener("click", () => {
   if (!localStream) return;
@@ -363,43 +465,76 @@ if (videoStage) {
 
 socket.on("existing-peers", async (peerIds) => {
   for (const peerId of peerIds) {
-    await createOfferForPeer(peerId);
+    try {
+      await createOfferForPeer(peerId);
+    } catch (error) {
+      console.error(`Failed to create offer for ${peerId}:`, error);
+    }
   }
 });
 
-socket.on("peer-joined", async (peerId) => {
-  createPeerConnection(peerId);
+socket.on("peer-joined", (peerId) => {
+  createRemoteVideoElement(peerId);
+  setPeerStatus(peerId, "Joining");
+  updateEmptyState();
 });
 
 socket.on("offer", async ({ caller, sdp }) => {
-  const pc = createPeerConnection(caller);
-  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+  try {
+    const pc = createPeerConnection(caller);
 
-  const answer = await pc.createAnswer();
-  await pc.setLocalDescription(answer);
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    await flushPendingIceCandidates(caller);
 
-  socket.emit("answer", {
-    target: caller,
-    responder: socket.id,
-    sdp: answer
-  });
+    const answer = await pc.createAnswer();
+    await pc.setLocalDescription(answer);
+
+    socket.emit("answer", {
+      target: caller,
+      responder: socket.id,
+      sdp: answer
+    });
+  } catch (error) {
+    console.error(`Error handling offer from ${caller}:`, error);
+  }
 });
 
 socket.on("answer", async ({ responder, sdp }) => {
-  const pc = peerConnections.get(responder);
-  if (!pc) return;
+  try {
+    const pc = peerConnections.get(responder);
+    if (!pc) return;
 
-  await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    await pc.setRemoteDescription(new RTCSessionDescription(sdp));
+    await flushPendingIceCandidates(responder);
+  } catch (error) {
+    console.error(`Error handling answer from ${responder}:`, error);
+  }
 });
 
 socket.on("ice-candidate", async ({ sender, candidate }) => {
-  const pc = peerConnections.get(sender);
-  if (!pc || !candidate) return;
-
   try {
+    if (!candidate) return;
+
+    const pc = peerConnections.get(sender);
+    if (!pc) {
+      if (!pendingIceCandidates.has(sender)) {
+        pendingIceCandidates.set(sender, []);
+      }
+      pendingIceCandidates.get(sender).push(candidate);
+      return;
+    }
+
+    if (!pc.remoteDescription) {
+      if (!pendingIceCandidates.has(sender)) {
+        pendingIceCandidates.set(sender, []);
+      }
+      pendingIceCandidates.get(sender).push(candidate);
+      return;
+    }
+
     await pc.addIceCandidate(new RTCIceCandidate(candidate));
   } catch (error) {
-    console.error("ICE candidate error:", error);
+    console.error(`ICE candidate error from ${sender}:`, error);
   }
 });
 
