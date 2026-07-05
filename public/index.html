@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta
+    name="viewport"
+    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
+  />
+  <title>Video connect with Sathik Basha</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./style.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <header class="topbar">
+      <div class="brand-wrap">
+        <div class="brand-dot"></div>
+        <div>
+          <h1 class="app-title">Video connect with Sathik Basha</h1>
+          <p class="app-subtitle">Secure personal and community video calling</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="call-page">
+      <section class="video-stage" id="videoStage">
+        <div class="room-badge hidden" id="roomBadge"></div>
+
+        <div class="videos-grid" id="videosGrid">
+          <div class="video-card local-card">
+            <video id="localVideo" class="video-el local-video" autoplay muted playsinline></video>
+            <div class="video-label">You</div>
+
+            <button
+              id="switchCameraBtn"
+              class="switch-camera-btn hidden"
+              type="button"
+              aria-label="Switch camera"
+            >
+              <svg viewBox="0 0 24 24" class="switch-camera-icon" aria-hidden="true">
+                <path d="M7 8l2.2-3h5.6L17 8h2a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-6a2 2 0 0 1 2-2h2zm5 7a3 3 0 1 0 0-6a3 3 0 0 0 0 6z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M9 3H5m0 0l2 2M5 3l2-2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M15 21h4m0 0l-2-2m2 2l-2 2" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="empty-state" id="emptyState">
+          Waiting for other participants...
+        </div>
+
+        <div class="call-controls hidden" id="callControls">
+          <button id="muteBtn" class="control-btn mute-btn" type="button" aria-label="Mute or unmute microphone">
+            <span class="control-icon" id="muteIcon">🎤</span>
+            <span id="muteBtnText">Mute</span>
+          </button>
+
+          <button id="endCallBtn" class="control-btn end-btn" type="button" aria-label="End call">
+            <span class="control-icon">📞</span>
+            <span>End</span>
+          </button>
+        </div>
+      </section>
+    </main>
+
+    <footer class="footer-note">
+      This was developed by Sathik Basha for personal and community use.
+    </footer>
+  </div>
+
+  <div class="modal-backdrop active" id="welcomeModal">
+    <div class="welcome-modal">
+      <h2>Welcome to Video connect with Sathik Basha</h2>
+      <p>Enter your room or code number to start connecting.</p>
+
+      <label for="roomCode" class="input-label">Code number</label>
+      <input
+        id="roomCode"
+        class="room-input"
+        type="text"
+        inputmode="numeric"
+        placeholder="Enter the code number"
+        autocomplete="off"
+      />
+      <div class="input-error hidden" id="roomError">Please enter the code number</div>
+
+      <button id="connectBtn" class="connect-btn" type="button">Connect</button>
+    </div>
+  </div>
+
+  <script src="/socket.io/socket.io.js"></script>
+  <script src="./app.js"></script>
+</body>
+</html>
