@@ -23,6 +23,7 @@ const endCallBtn = document.getElementById("endCallBtn");
 const callControls = document.getElementById("callControls");
 const switchCameraBtn = document.getElementById("switchCameraBtn");
 
+
 let localStream = null;
 let currentRoom = "";
 let isMuted = false;
@@ -105,10 +106,13 @@ function setUserCount(count) {
 
 function showControlsTemporarily() {
   callControls.classList.remove("hidden");
+  sharePanel.classList.remove("hidden");
+  
 
   if (controlsTimer) clearTimeout(controlsTimer);
   controlsTimer = setTimeout(() => {
     callControls.classList.add("hidden");
+    sharePanel.classList.add("hidden");    
   }, 5000);
 }
 
