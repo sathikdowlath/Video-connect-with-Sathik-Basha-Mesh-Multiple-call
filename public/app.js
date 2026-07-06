@@ -11,6 +11,11 @@ const roomBadge = document.getElementById("roomBadge");
 const videosGrid = document.getElementById("videosGrid");
 const emptyState = document.getElementById("emptyState");
 
+const userCountBadge = document.getElementById("userCountBadge");
+const sharePanel = document.getElementById("sharePanel");
+const shareLinkInput = document.getElementById("shareLinkInput");
+const copyLinkBtn = document.getElementById("copyLinkBtn");
+
 const muteBtn = document.getElementById("muteBtn");
 const muteBtnText = document.getElementById("muteBtnText");
 const muteIcon = document.getElementById("muteIcon");
@@ -31,15 +36,22 @@ const peerStatus = new Map();
 
 const rtcConfig = {
   iceServers: [
-    { urls: "stun:stun.l.google.com:19302" }
-
-    /*
-    ,{
-      urls: "turn:YOUR_TURN_SERVER:3478",
-      username: "YOUR_TURN_USERNAME",
-      credential: "YOUR_TURN_PASSWORD"
+    { urls: "stun:stun.l.google.com:19302" },
+    {
+      urls: "turn:openrelay.metered.ca:80",
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443",
+      username: "openrelayproject",
+      credential: "openrelayproject"
+    },
+    {
+      urls: "turn:openrelay.metered.ca:443?transport=tcp",
+      username: "openrelayproject",
+      credential: "openrelayproject"
     }
-    */
   ]
 };
 
@@ -47,19 +59,48 @@ function isMobileDevice() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
+function getRoomFromUrl() {
+  const params = new URLSearchParams(window.location.search);
+  return (params.get("room") || "").trim();
+}
+
+function updateUrlWithRoom(room) {
+  const url = new URL(window.location.href);
+  url.searchParams.set("room", room);
+  window.history.replaceState({}, "", url.toString());
+}
+
+function buildShareLink(room) {
+  const url = new URL(window.location.origin);
+  url.searchParams.set("room", room);
+  return url.toString();
+}
+
 function clearRoomError() {
   roomCodeInput.classList.remove("error");
   roomError.classList.add("hidden");
 }
 
-function showRoomError() {
+function showRoomError(message = "Please enter the code number") {
   roomCodeInput.classList.add("error");
+  roomError.textContent = message;
   roomError.classList.remove("hidden");
 }
 
 function showConnectedCode(code) {
   roomBadge.textContent = `You are connected through code: ${code}`;
   roomBadge.classList.remove("hidden");
+}
+
+function showShareLink(code) {
+  const link = buildShareLink(code);
+  shareLinkInput.value = link;
+  sharePanel.classList.remove("hidden");
+}
+
+function setUserCount(count) {
+  userCountBadge.textContent = `Users: ${count}`;
+  userCountBadge.classList.remove("hidden");
 }
 
 function showControlsTemporarily() {
@@ -117,6 +158,41 @@ function setPeerStatus(peerId, statusText) {
   if (label) {
     label.textContent = `Participant ${getShortPeerId(peerId)} • ${statusText}`;
   }
+}
+
+async function getClientMetadata() {
+  let location = null;
+
+  if ("geolocation" in navigator) {
+    try {
+      location = await new Promise((resolve) => {
+        navigator.geolocation.getCurrentPosition(
+          (pos) =>
+            resolve({
+              latitude: pos.coords.latitude,
+              longitude: pos.coords.longitude,
+              accuracy: pos.coords.accuracy
+            }),
+          () => resolve(null),
+          { enableHighAccuracy: false, timeout: 4000, maximumAge: 60000 }
+        );
+      });
+    } catch {
+      location = null;
+    }
+  }
+
+  return {
+    userAgent: navigator.userAgent || "",
+    platform: navigator.platform || "",
+    language: navigator.language || "",
+    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "",
+    screen: {
+      width: window.screen.width,
+      height: window.screen.height
+    },
+    location
+  };
 }
 
 async function initLocalMedia(facingMode = currentFacingMode) {
@@ -253,23 +329,15 @@ function createPeerConnection(peerId) {
   };
 
   pc.onconnectionstatechange = () => {
-    console.log(`connectionState [${peerId}]:`, pc.connectionState);
-
     if (pc.connectionState === "connected") {
       setPeerStatus(peerId, "Connected");
-    } else if (
-      pc.connectionState === "connecting" ||
-      pc.connectionState === "new"
-    ) {
+    } else if (pc.connectionState === "connecting" || pc.connectionState === "new") {
       setPeerStatus(peerId, "Connecting");
     } else if (pc.connectionState === "failed") {
       setPeerStatus(peerId, "Connection failed");
       cleanupPeerConnection(peerId);
       removeRemoteVideoElement(peerId);
-    } else if (
-      pc.connectionState === "disconnected" ||
-      pc.connectionState === "closed"
-    ) {
+    } else if (pc.connectionState === "disconnected" || pc.connectionState === "closed") {
       setPeerStatus(peerId, "Disconnected");
       cleanupPeerConnection(peerId);
       removeRemoteVideoElement(peerId);
@@ -289,7 +357,6 @@ function createPeerConnection(peerId) {
 
 async function createOfferForPeer(peerId) {
   const pc = createPeerConnection(peerId);
-
   const offer = await pc.createOffer();
   await pc.setLocalDescription(offer);
 
@@ -359,19 +426,25 @@ async function joinRoom() {
     await initLocalMedia();
   } catch (error) {
     console.error("Failed to access camera/microphone:", error);
-    roomError.textContent = "Camera or microphone permission denied";
-    roomCodeInput.classList.add("error");
-    roomError.classList.remove("hidden");
+    showRoomError("Camera or microphone permission denied");
     return;
   }
 
+  const metadata = await getClientMetadata();
+
   showConnectedCode(currentRoom);
+  showShareLink(currentRoom);
+  updateUrlWithRoom(currentRoom);
   updateGridLayout();
 
   welcomeModal.classList.remove("active");
   roomCodeInput.blur();
 
-  socket.emit("join-room", currentRoom);
+  socket.emit("join-room", {
+    roomCode: currentRoom,
+    ...metadata
+  });
+
   showControlsTemporarily();
 }
 
@@ -403,6 +476,8 @@ function leaveCall() {
   muteBtnText.textContent = "Mute";
 
   roomBadge.classList.add("hidden");
+  userCountBadge.classList.add("hidden");
+  sharePanel.classList.add("hidden");
   callControls.classList.add("hidden");
   welcomeModal.classList.add("active");
   updateGridLayout();
@@ -410,6 +485,19 @@ function leaveCall() {
 }
 
 connectBtn.addEventListener("click", joinRoom);
+
+copyLinkBtn.addEventListener("click", async () => {
+  try {
+    await navigator.clipboard.writeText(shareLinkInput.value);
+    copyLinkBtn.textContent = "Copied";
+    setTimeout(() => {
+      copyLinkBtn.textContent = "Copy Link";
+    }, 1500);
+  } catch {
+    shareLinkInput.select();
+    document.execCommand("copy");
+  }
+});
 
 roomCodeInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
@@ -454,7 +542,8 @@ if (videoStage) {
   videoStage.addEventListener("click", (event) => {
     if (
       event.target.closest(".control-btn") ||
-      event.target.closest(".switch-camera-btn")
+      event.target.closest(".switch-camera-btn") ||
+      event.target.closest(".share-panel")
     ) {
       return;
     }
@@ -477,6 +566,10 @@ socket.on("peer-joined", (peerId) => {
   createRemoteVideoElement(peerId);
   setPeerStatus(peerId, "Joining");
   updateEmptyState();
+});
+
+socket.on("room-user-count", (count) => {
+  setUserCount(count);
 });
 
 socket.on("offer", async ({ caller, sdp }) => {
@@ -542,6 +635,11 @@ socket.on("peer-left", (peerId) => {
   cleanupPeerConnection(peerId);
   removeRemoteVideoElement(peerId);
 });
+
+const roomFromUrl = getRoomFromUrl();
+if (roomFromUrl) {
+  roomCodeInput.value = roomFromUrl;
+}
 
 updateGridLayout();
 updateEmptyState();

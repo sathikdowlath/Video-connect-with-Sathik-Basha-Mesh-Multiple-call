@@ -2,10 +2,7 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <meta
-    name="viewport"
-    content="width=device-width, initial-scale=1.0, viewport-fit=cover"
-  />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
   <title>Video connect with Sathik Basha</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -27,6 +24,12 @@
     <main class="call-page">
       <section class="video-stage" id="videoStage">
         <div class="room-badge hidden" id="roomBadge"></div>
+        <div class="user-count-badge hidden" id="userCountBadge"></div>
+
+        <div class="share-panel hidden" id="sharePanel">
+          <input id="shareLinkInput" class="share-link-input" readonly />
+          <button id="copyLinkBtn" class="copy-link-btn" type="button">Copy Link</button>
+        </div>
 
         <div class="videos-grid layout-1" id="videosGrid">
           <div class="video-card local-card" id="localCard">
