@@ -23,12 +23,13 @@ const endCallBtn = document.getElementById("endCallBtn");
 const callControls = document.getElementById("callControls");
 const switchCameraBtn = document.getElementById("switchCameraBtn");
 
-
 let localStream = null;
 let currentRoom = "";
 let isMuted = false;
 let currentFacingMode = "user";
 let controlsTimer = null;
+let availableVideoInputs = [];
+let currentVideoDeviceId = "";
 
 const peerConnections = new Map();
 const remoteStreams = new Map();
@@ -60,6 +61,10 @@ function isMobileDevice() {
   return /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
 }
 
+function isAndroidDevice() {
+  return /Android/i.test(navigator.userAgent);
+}
+
 function getRoomFromUrl() {
   const params = new URLSearchParams(window.location.search);
   return (params.get("room") || "").trim();
@@ -75,6 +80,12 @@ function buildShareLink(room) {
   const url = new URL(window.location.origin);
   url.searchParams.set("room", room);
   return url.toString();
+}
+
+async function loadVideoInputs() {
+  const devices = await navigator.mediaDevices.enumerateDevices();
+  availableVideoInputs = devices.filter(device => device.kind === "videoinput");
+  return availableVideoInputs;
 }
 
 function clearRoomError() {
@@ -106,13 +117,10 @@ function setUserCount(count) {
 
 function showControlsTemporarily() {
   callControls.classList.remove("hidden");
-  sharePanel.classList.remove("hidden");
-  
 
   if (controlsTimer) clearTimeout(controlsTimer);
   controlsTimer = setTimeout(() => {
     callControls.classList.add("hidden");
-    sharePanel.classList.add("hidden");    
   }, 5000);
 }
 
@@ -202,21 +210,39 @@ async function getClientMetadata() {
 async function initLocalMedia(facingMode = currentFacingMode) {
   if (localStream) return localStream;
 
+  await loadVideoInputs();
+
+  let videoConstraints;
+
+  if (isMobileDevice()) {
+    if (isAndroidDevice() && currentVideoDeviceId) {
+      videoConstraints = { deviceId: { exact: currentVideoDeviceId } };
+    } else {
+      videoConstraints = { facingMode };
+    }
+  } else {
+    videoConstraints = true;
+  }
+
   const stream = await navigator.mediaDevices.getUserMedia({
     audio: true,
-    video: isMobileDevice() ? { facingMode } : true
+    video: videoConstraints
   });
 
   localStream = stream;
   localVideo.srcObject = localStream;
   currentFacingMode = facingMode;
 
+  const videoTrack = localStream.getVideoTracks()[0];
+  const settings = videoTrack ? videoTrack.getSettings() : {};
+  currentVideoDeviceId = settings.deviceId || currentVideoDeviceId;
+
   const audioTrack = localStream.getAudioTracks()[0];
   if (audioTrack) {
     audioTrack.enabled = !isMuted;
   }
 
-  if (isMobileDevice()) {
+  if (isMobileDevice() && availableVideoInputs.length > 1) {
     switchCameraBtn.classList.remove("hidden");
   }
 
@@ -374,14 +400,57 @@ async function createOfferForPeer(peerId) {
 async function switchCamera() {
   if (!localStream) return;
 
+  await loadVideoInputs();
+
   const currentAudioTrack = localStream.getAudioTracks()[0];
   const oldVideoTrack = localStream.getVideoTracks()[0];
-  const nextFacingMode = currentFacingMode === "user" ? "environment" : "user";
 
-  const newVideoStream = await navigator.mediaDevices.getUserMedia({
-    video: { facingMode: nextFacingMode },
-    audio: false
-  });
+  if (availableVideoInputs.length < 2) {
+    console.warn("No secondary camera found.");
+    return;
+  }
+
+  let newVideoStream = null;
+
+  if (isAndroidDevice()) {
+    const currentIndex = availableVideoInputs.findIndex(
+      device => device.deviceId === currentVideoDeviceId
+    );
+
+    const nextDevice =
+      currentIndex >= 0
+        ? availableVideoInputs[(currentIndex + 1) % availableVideoInputs.length]
+        : availableVideoInputs[0];
+
+    if (oldVideoTrack) {
+      oldVideoTrack.stop();
+    }
+
+    newVideoStream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        deviceId: { exact: nextDevice.deviceId }
+      },
+      audio: false
+    });
+
+    currentVideoDeviceId = nextDevice.deviceId;
+  } else {
+    const nextFacingMode = currentFacingMode === "user" ? "environment" : "user";
+
+    if (oldVideoTrack) {
+      oldVideoTrack.stop();
+    }
+
+    newVideoStream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: nextFacingMode },
+      audio: false
+    });
+
+    currentFacingMode = nextFacingMode;
+
+    const settings = newVideoStream.getVideoTracks()[0]?.getSettings?.() || {};
+    currentVideoDeviceId = settings.deviceId || currentVideoDeviceId;
+  }
 
   const newVideoTrack = newVideoStream.getVideoTracks()[0];
 
@@ -395,12 +464,9 @@ async function switchCamera() {
     }
   }
 
-  if (oldVideoTrack) {
-    oldVideoTrack.stop();
-  }
-
   const rebuiltTracks = [];
   if (newVideoTrack) rebuiltTracks.push(newVideoTrack);
+
   if (currentAudioTrack) {
     currentAudioTrack.enabled = !isMuted;
     rebuiltTracks.push(currentAudioTrack);
@@ -408,9 +474,46 @@ async function switchCamera() {
 
   localStream = new MediaStream(rebuiltTracks);
   localVideo.srcObject = localStream;
-  currentFacingMode = nextFacingMode;
+  await localVideo.play().catch(() => {});
 
   showControlsTemporarily();
+}
+
+function leaveCall() {
+  if (currentRoom) {
+    socket.emit("leave-room");
+  }
+
+  for (const peerId of [...peerConnections.keys()]) {
+    cleanupPeerConnection(peerId);
+  }
+
+  for (const peerId of [...remoteStreams.keys()]) {
+    removeRemoteVideoElement(peerId);
+  }
+
+  peerConnections.clear();
+  remoteStreams.clear();
+  pendingIceCandidates.clear();
+  peerStatus.clear();
+
+  stopLocalMedia();
+
+  currentRoom = "";
+  currentFacingMode = "user";
+  currentVideoDeviceId = "";
+  isMuted = false;
+
+  muteIcon.textContent = "🎤";
+  muteBtnText.textContent = "Mute";
+
+  roomBadge.classList.add("hidden");
+  userCountBadge.classList.add("hidden");
+  sharePanel.classList.add("hidden");
+  callControls.classList.add("hidden");
+  welcomeModal.classList.add("active");
+  updateGridLayout();
+  updateEmptyState();
 }
 
 async function joinRoom() {
@@ -450,42 +553,6 @@ async function joinRoom() {
   });
 
   showControlsTemporarily();
-}
-
-function leaveCall() {
-  if (currentRoom) {
-    socket.emit("leave-room");
-  }
-
-  for (const peerId of [...peerConnections.keys()]) {
-    cleanupPeerConnection(peerId);
-  }
-
-  for (const peerId of [...remoteStreams.keys()]) {
-    removeRemoteVideoElement(peerId);
-  }
-
-  peerConnections.clear();
-  remoteStreams.clear();
-  pendingIceCandidates.clear();
-  peerStatus.clear();
-
-  stopLocalMedia();
-
-  currentRoom = "";
-  currentFacingMode = "user";
-  isMuted = false;
-
-  muteIcon.textContent = "🎤";
-  muteBtnText.textContent = "Mute";
-
-  roomBadge.classList.add("hidden");
-  userCountBadge.classList.add("hidden");
-  sharePanel.classList.add("hidden");
-  callControls.classList.add("hidden");
-  welcomeModal.classList.add("active");
-  updateGridLayout();
-  updateEmptyState();
 }
 
 connectBtn.addEventListener("click", joinRoom);
@@ -555,6 +622,14 @@ if (videoStage) {
     showControlsTemporarily();
   });
 }
+
+navigator.mediaDevices.addEventListener?.("devicechange", async () => {
+  try {
+    await loadVideoInputs();
+  } catch (error) {
+    console.warn("devicechange refresh failed:", error);
+  }
+});
 
 socket.on("existing-peers", async (peerIds) => {
   for (const peerId of peerIds) {

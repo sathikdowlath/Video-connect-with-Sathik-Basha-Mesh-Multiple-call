@@ -16,25 +16,25 @@ const sessionLogs = new Map();
 const GOOGLE_SCRIPT_URL =
   process.env.GOOGLE_SCRIPT_URL || "YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL";
 
-// async function sendLogToGoogleSheet(entry) {
-//   if (!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL.includes("YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL")) {
-//     console.log("Google Script URL not configured. Skipping log.");
-//     return;
-//   }
+async function sendLogToGoogleSheet(entry) {
+  if (!GOOGLE_SCRIPT_URL || GOOGLE_SCRIPT_URL.includes("YOUR_GOOGLE_APPS_SCRIPT_WEB_APP_URL")) {
+    console.log("Google Script URL not configured. Skipping log.");
+    return;
+  }
 
-//   try {
-//     await fetch(GOOGLE_SCRIPT_URL, {
-//       method: "POST",
-//       headers: {
-//         "Content-Type": "text/plain;charset=utf-8"
-//       },
-//       body: JSON.stringify(entry),
-//       redirect: "follow"
-//     });
-//   } catch (error) {
-//     console.error("Failed to send log to Google Sheet:", error);
-//   }
-// }
+  try {
+    await fetch(GOOGLE_SCRIPT_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
+      body: JSON.stringify(entry),
+      redirect: "follow"
+    });
+  } catch (error) {
+    console.error("Failed to send log to Google Sheet:", error);
+  }
+}
 
 io.on("connection", (socket) => {
   socket.on("join-room", async (payload) => {
@@ -81,10 +81,10 @@ io.on("connection", (socket) => {
       socket.to(room).emit("peer-joined", socket.id);
       io.to(room).emit("room-user-count", members.size);
 
-      // await sendLogToGoogleSheet({
-      //   event: "join",
-      //   ...sessionLogs.get(socket.id)
-      // });
+      await sendLogToGoogleSheet({
+        event: "join",
+        ...sessionLogs.get(socket.id)
+      });
     } catch (error) {
       console.error("join-room error:", error);
     }
@@ -146,10 +146,10 @@ async function removeSocketFromRoom(socket) {
       durationSeconds
     };
 
-    // await sendLogToGoogleSheet({
-    //   event: "leave",
-    //   ...finalEntry
-    // });
+    await sendLogToGoogleSheet({
+      event: "leave",
+      ...finalEntry
+    });
 
     sessionLogs.delete(socket.id);
   }

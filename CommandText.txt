@@ -1,0 +1,17 @@
+
+http://localhost:3000
+
+
+
+Open PowerShell as Administrator or a normal PowerShell
+
+Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned
+
+Y
+
+Get-ExecutionPolicy -List
+
+npm.cmd --version
+npm.cmd install
+npm.cmd start
+
